@@ -3,9 +3,9 @@ import os
 
 from keras.datasets import mnist, cifar100, cifar10
 from keras.preprocessing.image import ImageDataGenerator, load_img, save_img, img_to_array
-
+import tensorflow as tf
 import pandas as pd
-
+import keras
 import numpy as np
 from os import walk, getcwd
 import h5py
@@ -300,3 +300,24 @@ def preprocess_image(data_name, file, img_nrows, img_ncols):
     img = np.expand_dims(img, axis=0)
     img = vgg19.preprocess_input(img)
     return img
+def deprocess_image_tf(x):
+    # Util function to convert a tensor into a valid image
+    x = x.reshape((128, 128, 3))
+    # Remove zero-center by mean pixel
+    x[:, :, 0] += 103.939
+    x[:, :, 1] += 116.779
+    x[:, :, 2] += 123.68
+    # 'BGR'->'RGB'
+    x = x[:, :, ::-1]
+    x = np.clip(x, 0, 255).astype("uint8")
+    return x
+
+def preprocess_image_tf(image_path):
+    # Util function to open, resize and format pictures into appropriate tensors
+    img = keras.preprocessing.image.load_img(
+        image_path, target_size=(128, 128)
+    )
+    img = keras.preprocessing.image.img_to_array(img)
+    img = np.expand_dims(img, axis=0)
+    img = vgg19.preprocess_input(img)
+    return tf.convert_to_tensor(img)
