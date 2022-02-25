@@ -7,8 +7,8 @@ import PIL.Image
 
 
 base_image_path = "base.jpg"
-style_reference_image_path = "stylp.jpg"
-result_prefix = "paris_generated"
+style_reference_image_path = "style.jpg"
+result_prefix = "example_generated"
 
 # Weights of the different loss components
 total_variation_weight = 1e-6
