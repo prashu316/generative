@@ -127,3 +127,14 @@ model.fit(
         )
 
 model.save('vae1.h5')
+znew=np.random.normal(size=(20,z_dim))
+reconst=decoder.predict(np.array(znew))
+
+fig=plt.figure(figsize=(18,5))
+fig.subplots_adjust(hspace=0.4, wspace=0.4)
+for i in range(20):
+    ax=fig.add_subplot(3,10,i+1)
+    ax.imshow(reconst[i,:,:,:])
+    ax.axis('off')
+
+plt.show()
