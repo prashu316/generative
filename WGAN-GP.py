@@ -1,16 +1,16 @@
 import keras
 from keras.layers import Input, Conv2D, Flatten, Dense, Conv2DTranspose, Reshape, Lambda, Activation, BatchNormalization, LeakyReLU, Dropout, ZeroPadding2D, UpSampling2D
 from keras.layers.merge import _Merge
-import keras.datasets
+from tensorflow import keras
 from keras.models import Model, Sequential
 from keras import backend as K
-
+#from keras.optimizers import Adam, RMSprop
 from keras.callbacks import ModelCheckpoint
-
-import keras.initializers
+from tensorflow.keras.optimizers import Adam, RMSprop
+from keras.initializers import RandomNormal
 
 from functools import partial
-from tensorflow import keras
+
 import numpy as np
 import json
 import os
@@ -31,26 +31,27 @@ class RandomWeightedAverage(_Merge):
         alpha = K.random_uniform((self.batch_size, 1, 1, 1))
         return (alpha * inputs[0]) + ((1 - alpha) * inputs[1])
 
-def gradient_penalty_loss(y_true, y_pred, interpolated_samples):
-    """
-            Computes gradient penalty based on prediction and weighted real / fake samples
-            """
-    gradients = K.gradients(y_pred, interpolated_samples)[0]
 
-    # compute the euclidean norm by squaring ...
-    gradients_sqr = K.square(gradients)
-    #   ... summing over the rows ...
-    gradients_sqr_sum = K.sum(gradients_sqr,
-                              axis=np.arange(1, len(gradients_sqr.shape)))
-    #   ... and sqrt
-    gradient_l2_norm = K.sqrt(gradients_sqr_sum)
-    # compute lambda * (1 - ||grad||)^2 still for each single sample
-    gradient_penalty = K.square(1 - gradient_l2_norm)
-    # return the mean as loss over all the batch samples
-    return K.mean(gradient_penalty)
+    def gradient_penalty_loss(y_true, y_pred, interpolated_samples):
+        """
+        Computes gradient penalty based on prediction and weighted real / fake samples
+        """
+        gradients = K.gradients(y_pred, interpolated_samples)[0]
 
-    def wasserstein(y_true, y_pred):
-        return -K.mean(y_true * y_pred)
+        # compute the euclidean norm by squaring ...
+        gradients_sqr = K.square(gradients)
+        #   ... summing over the rows ...
+        gradients_sqr_sum = K.sum(gradients_sqr,
+                                  axis=np.arange(1, len(gradients_sqr.shape)))
+        #   ... and sqrt
+        gradient_l2_norm = K.sqrt(gradients_sqr_sum)
+        # compute lambda * (1 - ||grad||)^2 still for each single sample
+        gradient_penalty = K.square(1 - gradient_l2_norm)
+        # return the mean as loss over all the batch samples
+        return K.mean(gradient_penalty)
+
+def wasserstein(y_true, y_pred):
+    return -K.mean(y_true * y_pred)
 
 
 def get_activation(activation):
@@ -60,7 +61,6 @@ def get_activation(activation):
         layer = Activation(activation)
     return layer
 
-#parameters
 input_dim = (28,28,1)
 critic_conv_filters = [64,128,256,512]
 critic_conv_kernel_size = [5,5,5,5]
@@ -104,8 +104,8 @@ def _build_critic():
     if critic_dropout_rate:
       x = Dropout(rate = critic_dropout_rate)(x)
   x = Flatten()(x)
-  # x = Dense(512, kernel_initializer = weight_init)(x)
-  # x = self.get_activation(self.critic_activation)(x)
+  x = Dense(512, kernel_initializer = weight_init)(x)
+  x = get_activation(critic_activation)(x)
   critic_output = Dense(1, activation=None
         , kernel_initializer = weight_init
         )(x)
@@ -120,7 +120,7 @@ def _build_generator():
   if generator_batch_norm_momentum:
     x = BatchNormalization(momentum = generator_batch_norm_momentum)(x)
   x = get_activation(generator_activation)(x)
-  x = Reshape(generator_initial_dense_layer_size)(x)
+  x = Reshape([7,7,64])(x)
   if generator_dropout_rate:
     x = Dropout(rate = generator_dropout_rate)(x)
   for i in range(n_layers_generator):
@@ -155,3 +155,76 @@ def _build_generator():
 generator=_build_generator()
 generator.summary()
 
+def get_opti(self, lr):
+  if self.optimiser == 'adam':
+    opti = Adam(lr=lr, beta_1=0.5)
+  elif self.optimiser == 'rmsprop':
+    opti = RMSprop(lr=lr)
+  else:
+    opti = Adam(lr=lr)
+
+  return opti
+
+def set_trainable(self, m, val):
+  m.trainable = val
+  for l in m.layers:
+    l.trainable = val
+
+    def _build_adversarial():
+        # Freeze generator's layers while training critic
+        set_trainable(generator, False)
+
+        # Image input (real sample)
+        real_img = Input(shape=input_dim)
+
+        # Fake image
+        z_disc = Input(shape=(z_dim,))
+        fake_img = generator(z_disc)
+
+        # critic determines validity of the real and fake images
+        fake = critic(fake_img)
+        valid = critic(real_img)
+
+        # Construct weighted average between real and fake images
+        interpolated_img = RandomWeightedAverage(batch_size)([real_img, fake_img])
+        # Determine validity of weighted sample
+        validity_interpolated = critic(interpolated_img)
+
+        # Use Python partial to provide loss function with additional
+        # 'interpolated_samples' argument
+        partial_gp_loss = partial(gradient_penalty_loss,
+                                  interpolated_samples=interpolated_img)
+        partial_gp_loss.__name__ = 'gradient_penalty'  # Keras requires function names
+
+        critic_model = Model(inputs=[real_img, z_disc],
+                             outputs=[valid, fake, validity_interpolated])
+
+        critic_model.compile(
+            loss=[wasserstein, wasserstein, partial_gp_loss]
+            , optimizer=get_opti(critic_learning_rate)
+            , loss_weights=[1, 1, grad_weight]
+        )
+
+        # -------------------------------
+        # Construct Computational Graph
+        #         for Generator
+        # -------------------------------
+
+        # For the generator we freeze the critic's layers
+        set_trainable(critic, False)
+        set_trainable(generator, True)
+
+        # Sampled noise for input to generator
+        model_input = Input(shape=(z_dim,))
+        # Generate images based of noise
+        img = generator(model_input)
+        # Discriminator determines validity
+        model_output = critic(img)
+        # Defines generator model
+        model = Model(model_input, model_output)
+
+        model.compile(optimizer=get_opti(generator_learning_rate)
+                      , loss=wasserstein
+                      )
+
+        set_trainable(critic, True)
