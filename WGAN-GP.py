@@ -228,3 +228,61 @@ def set_trainable(self, m, val):
                       )
 
         set_trainable(critic, True)
+    critic_model, model=_build_adversarial()
+
+    def train_critic(x_train, batch_size, using_generator):
+
+        valid = np.ones((batch_size, 1), dtype=np.float32)
+        fake = -np.ones((batch_size, 1), dtype=np.float32)
+        dummy = np.zeros((batch_size, 1), dtype=np.float32)  # Dummy gt for gradient penalty
+
+        if using_generator:
+            true_imgs = next(x_train)[0]
+            if true_imgs.shape[0] != batch_size:
+                true_imgs = next(x_train)[0]
+        else:
+            idx = np.random.randint(0, x_train.shape[0], batch_size)
+            true_imgs = x_train[idx]
+
+        noise = np.random.normal(0, 1, (batch_size, z_dim))
+
+        d_loss = critic_model.train_on_batch([true_imgs, noise], [valid, fake, dummy])
+        return d_loss
+
+
+    def train_generator(batch_size):
+        valid = np.ones((batch_size,1), dtype=np.float32)
+        noise = np.random.normal(0, 1, (batch_size, z_dim))
+        return model.train_on_batch(noise, valid)
+
+    epoch = 0
+
+    def train(x_train, batch_size, epochs, print_every_n_batches=10
+              , n_critic=5
+              , using_generator=False):
+
+        for epoch in range(0, epochs):
+
+            if epoch % 100 == 0:
+                critic_loops = 5
+            else:
+                critic_loops = n_critic
+
+            for _ in range(critic_loops):
+                d_loss = train_critic(x_train, batch_size, using_generator)
+
+            g_loss = train_generator(batch_size)
+
+            print("%d (%d, %d) [D loss: (%.1f)(R %.1f, F %.1f, G %.1f)] [G loss: %.1f]" % (
+            epoch, critic_loops, 1, d_loss[0], d_loss[1], d_loss[2], d_loss[3], g_loss))
+
+            sd_losses.append(d_loss)
+            g_losses.append(g_loss)
+
+            # If at save interval => save generated image samples
+            if epoch % print_every_n_batches == 0:
+                model.save_weights('try1.h5')
+
+            epoch += 1
+
+train(x_train,64,100,6000,5)
