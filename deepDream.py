@@ -6,10 +6,7 @@ from tensorflow.keras.applications import inception_v3
 base_image_path = "dream.jpg"
 result_prefix = "sky_dream"
 
-# These are the names of the layers
-# for which we try to maximize activation,
-# as well as their weight in the final loss
-# we try to maximize.
+
 # You can tweak these setting to obtain new visual effects.
 layer_settings = {
     "mixed4": 1.0,
@@ -18,7 +15,7 @@ layer_settings = {
     "mixed7": 2.5,
 }
 
-# Playing with these hyperparameters will also allow you to achieve new effects
+# these hyperparameters can be changed in order to alter picture
 step = 0.01  # Gradient ascent step size
 num_octave = 3  # Number of scales at which to run gradient ascent
 octave_scale = 1.4  # Size ratio between scales
